@@ -73,7 +73,7 @@ def generate_optimised_content(page_data: dict, settings: dict, api_key: str) ->
     """
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-2.5-flash")
 
         prompt = build_prompt(page_data, settings)
 
