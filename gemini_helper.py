@@ -66,6 +66,43 @@ Respond ONLY with a valid JSON object using exactly this structure (no markdown,
     return prompt
 
 
+def repair_truncated_json(raw: str) -> dict:
+    """
+    Attempt to salvage a truncated JSON response by extracting
+    whatever fields were completed before the cut-off.
+    """
+    result = {}
+
+    patterns = {
+        "meta_title": r'"meta_title"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        "meta_description": r'"meta_description"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        "h1": r'"h1"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        "description": r'"description"\s*:\s*"((?:[^"\\]|\\.)*)"',
+    }
+
+    for key, pattern in patterns.items():
+        match = re.search(pattern, raw, re.DOTALL)
+        if match:
+            result[key] = match.group(1).replace("\\n", "\n").replace('\\"', '"')
+
+    bullets_match = re.search(r'"bullets"\s*:\s*\[(.*?)(?:\]|$)', raw, re.DOTALL)
+    if bullets_match:
+        bullet_items = re.findall(r'"((?:[^"\\]|\\.)*)"', bullets_match.group(1))
+        result["bullets"] = bullet_items
+
+    faqs_match = re.search(r'"faqs"\s*:\s*\[(.*?)(?:\]|\Z)', raw, re.DOTALL)
+    if faqs_match:
+        faq_block = faqs_match.group(1)
+        questions = re.findall(r'"question"\s*:\s*"((?:[^"\\]|\\.)*)"', faq_block)
+        answers = re.findall(r'"answer"\s*:\s*"((?:[^"\\]|\\.)*)"', faq_block)
+        result["faqs"] = [
+            {"question": q, "answer": a}
+            for q, a in zip(questions, answers)
+        ]
+
+    return result
+
+
 def generate_optimised_content(page_data: dict, settings: dict, api_key: str) -> tuple[dict, str | None]:
     """
     Call the Gemini API and return structured content.
@@ -81,7 +118,7 @@ def generate_optimised_content(page_data: dict, settings: dict, api_key: str) ->
             prompt,
             generation_config=genai.GenerationConfig(
                 temperature=0.7,
-                max_output_tokens=2048,
+                max_output_tokens=8192,
             )
         )
 
@@ -92,9 +129,16 @@ def generate_optimised_content(page_data: dict, settings: dict, api_key: str) ->
         raw = re.sub(r"\s*```$", "", raw)
         raw = raw.strip()
 
-        result = json.loads(raw)
+        # First attempt: clean parse
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            # Second attempt: extract fields individually from truncated response
+            result = repair_truncated_json(raw)
+            if not result:
+                return {}, "Gemini returned an incomplete response. Try again or reduce the number of FAQs/bullets."
 
-        # Validate expected keys
+        # Ensure all required keys exist
         required_keys = ["meta_title", "meta_description", "h1", "bullets", "description", "faqs"]
         for key in required_keys:
             if key not in result:
@@ -102,7 +146,5 @@ def generate_optimised_content(page_data: dict, settings: dict, api_key: str) ->
 
         return result, None
 
-    except json.JSONDecodeError as e:
-        return {}, f"Could not parse Gemini response as JSON: {str(e)}"
     except Exception as e:
         return {}, f"Gemini API error: {str(e)}"
