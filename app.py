@@ -137,8 +137,7 @@ with st.sidebar:
     num_bullets = st.slider("Number of bullets", 3, 8, 5)
     num_faqs = st.slider("Number of FAQs", 3, 8, 5)
     st.divider()
-    st.markdown("**About**")
-    st.markdown("Built for Summit. Powered by Gemini.")
+   
 
 # --- Mode tabs ---
 tab_single, tab_bulk = st.tabs(["Single URL", "Bulk URLs"])
